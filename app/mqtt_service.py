@@ -19,18 +19,21 @@ class MQTTService:
         self.host = parsed.hostname
         self.port = parsed.port or (8883 if parsed.scheme == "mqtts" else 1883)
         self.username = unquote(parsed.username) if parsed.username else None
+        self.password = unquote(parsed.password or "") if parsed.username else ""
         self.tls_enabled = parsed.scheme == "mqtts"
         self.client_id = f"medidrone-backend-{settings.drone_id}"
         self.client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2, client_id=self.client_id, protocol=mqtt.MQTTv311, clean_session=True)
         if self.username is not None:
-            self.client.username_pw_set(self.username, unquote(parsed.password or ""))
+            self.client.username_pw_set(self.username, self.password)
         if self.tls_enabled:
             self.client.tls_set()
         self.client.on_connect, self.client.on_message = self._on_connect, self._on_message
 
     def start(self, *, subscribe=True):
         self.subscribe_enabled = subscribe
-        log.info("MQTT connecting host=%s port=%s username=%s client_id=%s protocol=MQTTv311 tls=%s", self.host, self.port, self.username or "<none>", self.client_id, self.tls_enabled)
+        username_bytes = len(self.username.encode("utf-8")) if self.username is not None else 0
+        password_bytes = len(self.password.encode("utf-8"))
+        log.info("MQTT connecting host=%s port=%s username=%s username_bytes=%s password_bytes=%s client_id=%s protocol=MQTTv311 tls=%s", self.host, self.port, self.username or "<none>", username_bytes, password_bytes, self.client_id, self.tls_enabled)
         self.client.connect(self.host, self.port, 60)
         self.client.loop_start()
 
@@ -64,7 +67,7 @@ class MQTTService:
             meaning = str(reason_code)
         log.info("MQTT CONNACK rc=%s meaning=%s", rc, meaning)
         if rc != 0:
-            log.error("MQTT connection refused host=%s port=%s username=%s client_id=%s protocol=MQTTv311 rc=%s meaning=%s", self.host, self.port, self.username or "<none>", self.client_id, rc, meaning)
+            log.error("MQTT connection refused host=%s port=%s username=%s username_bytes=%s password_bytes=%s client_id=%s protocol=MQTTv311 rc=%s meaning=%s", self.host, self.port, self.username or "<none>", len(self.username.encode("utf-8")) if self.username is not None else 0, len(self.password.encode("utf-8")), self.client_id, rc, meaning)
             return
         if self.subscribe_enabled:
             for suffix in ("status", "rescue-report"):
