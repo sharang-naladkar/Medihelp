@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     # Neon CLI writes linked branch variables to .env.local; .env remains the deployment fallback.
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
     database_url: str = Field(alias="DATABASE_URL")
+    database_url_unpooled: str | None = Field(default=None, alias="DATABASE_URL_UNPOOLED")
     mqtt_broker_url: str = Field(alias="MQTT_BROKER_URL")
     drone_id: str = Field(alias="DRONE_ID", min_length=1)
     drone_home_lat: float = Field(alias="DRONE_HOME_LAT", ge=-90, le=90)
