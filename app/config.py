@@ -2,6 +2,11 @@ from functools import lru_cache
 from pydantic import AnyUrl, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+class DatabaseSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
+    database_url: str = Field(alias="DATABASE_URL")
+    database_url_unpooled: str | None = Field(default=None, alias="DATABASE_URL_UNPOOLED")
+
 class Settings(BaseSettings):
     # Neon CLI writes linked branch variables to .env.local; .env remains the deployment fallback.
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
