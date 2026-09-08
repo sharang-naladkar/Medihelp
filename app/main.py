@@ -40,8 +40,8 @@ async def lifespan(app):
     service.stop()
 
 app = FastAPI(title="MediDrone Backend", lifespan=lifespan)
-app_origin = os.getenv("APP_ORIGIN", "").rstrip("/")
-app.add_middleware(CORSMiddleware, allow_origins=[app_origin] if app_origin else [], allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["content-type"])
+app_origin = os.getenv("APP_ORIGIN", "http://localhost:3000").rstrip("/")
+app.add_middleware(CORSMiddleware, allow_origins=[app_origin], allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["content-type"])
 
 @app.post("/api/v1/emergencies", response_model=EmergencyCreated, status_code=201)
 def create_emergency(body: EmergencyCreate, db: Session = Depends(get_db)):
