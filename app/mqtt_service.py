@@ -18,11 +18,13 @@ class MQTTService:
             raise ValueError("MQTT_BROKER_URL must be mqtt:// or mqtts:// with a host")
         self.host, self.port = parsed.hostname, parsed.port or (8883 if parsed.scheme == "mqtts" else 1883)
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        if parsed.username: self.client.username_pw_set(parsed.username, parsed.password or "")
         if parsed.scheme == "mqtts": self.client.tls_set()
         self.client.on_connect, self.client.on_message = self._on_connect, self._on_message
 
-    def start(self):
-        self.client.connect_async(self.host, self.port, 60)
+    def start(self, *, subscribe=True):
+        self.subscribe_enabled = subscribe
+        self.client.connect(self.host, self.port, 60)
         self.client.loop_start()
 
     def stop(self):
@@ -46,9 +48,12 @@ class MQTTService:
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code != 0:
             log.error("MQTT connection refused: %s", reason_code); return
-        for suffix in ("status", "rescue-report"):
-            self.client.subscribe(f"drone/{self.settings.drone_id}/{suffix}", qos=1)
-        log.info("MQTT subscriber connected for drone %s", self.settings.drone_id)
+        if self.subscribe_enabled:
+            for suffix in ("status", "rescue-report"):
+                self.client.subscribe(f"drone/{self.settings.drone_id}/{suffix}", qos=1)
+            log.info("MQTT subscriber connected for drone %s", self.settings.drone_id)
+        else:
+            log.info("MQTT publisher connected for drone %s; subscriptions disabled", self.settings.drone_id)
 
     def _on_message(self, client, userdata, message):
         try:
