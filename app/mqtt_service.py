@@ -21,12 +21,7 @@ class MQTTService:
         self.username = unquote(parsed.username) if parsed.username else None
         self.tls_enabled = parsed.scheme == "mqtts"
         self.client_id = f"medidrone-backend-{settings.drone_id}"
-        self.client = mqtt.Client(
-            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-            client_id=self.client_id,
-            protocol=mqtt.MQTTv311,
-            clean_session=True,
-        )
+        self.client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2, client_id=self.client_id, protocol=mqtt.MQTTv311, clean_session=True)
         if self.username is not None:
             self.client.username_pw_set(self.username, unquote(parsed.password or ""))
         if self.tls_enabled:
@@ -86,7 +81,7 @@ class MQTTService:
         except (ValueError, TypeError, KeyError, SQLAlchemyError) as exc:
             log.exception("Discarded malformed MQTT message on %s: %s", message.topic, exc)
         except Exception:
-            log.exception("Unexpected MQTT ingestion error on %s: %s", message.topic, exc)
+            log.exception("Unexpected MQTT ingestion error on %s", message.topic)
 
     def _handle_status(self, payload):
         required = {"emergency_id","status","lat","lng","alt","battery_pct","mission_item_current","mode","timestamp"}
