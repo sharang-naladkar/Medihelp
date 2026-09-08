@@ -7,6 +7,14 @@ class DatabaseSettings(BaseSettings):
     database_url: str = Field(alias="DATABASE_URL")
     database_url_unpooled: str | None = Field(default=None, alias="DATABASE_URL_UNPOOLED")
 
+    def sqlalchemy_url(self, *, direct: bool = False) -> str:
+        value = self.database_url_unpooled if direct and self.database_url_unpooled else self.database_url
+        if value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+psycopg://", 1)
+        if value.startswith("postgres://"):
+            return value.replace("postgres://", "postgresql+psycopg://", 1)
+        return value
+
 class Settings(BaseSettings):
     # Neon CLI writes linked branch variables to .env.local; .env remains the deployment fallback.
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
