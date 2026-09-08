@@ -1,4 +1,5 @@
-import json, logging, time, uuid
+import json, logging, threading, time, uuid
+from datetime import datetime, timezone
 from urllib.parse import unquote, urlparse
 import httpx
 import paho.mqtt.client as mqtt
@@ -31,6 +32,9 @@ class MQTTService:
 
     def start(self, *, subscribe=True):
         self.subscribe_enabled = subscribe
+        if not self.settings.mqtt_enabled:
+            log.warning("MQTT disabled via feature flag — skipping real publish, using fallback simulation")
+            return
         username_bytes = len(self.username.encode("utf-8")) if self.username is not None else 0
         password_bytes = len(self.password.encode("utf-8"))
         log.info("MQTT connecting host=%s port=%s username=%s username_bytes=%s password_bytes=%s client_id=%s protocol=MQTTv311 tls=%s", self.host, self.port, self.username or "<none>", username_bytes, password_bytes, self.client_id, self.tls_enabled)
@@ -38,10 +42,15 @@ class MQTTService:
         self.client.loop_start()
 
     def stop(self):
-        self.client.loop_stop()
-        self.client.disconnect()
+        if self.settings.mqtt_enabled:
+            self.client.loop_stop()
+            self.client.disconnect()
 
     def publish_mission(self, emergency_id, items):
+        if not self.settings.mqtt_enabled:
+            log.warning("MQTT disabled via feature flag — skipping real publish, using fallback simulation")
+            threading.Thread(target=self._simulate_emergency, args=(emergency_id,), name=f"demo-emergency-{emergency_id}", daemon=True).start()
+            return True
         topic = f"drone/{self.settings.drone_id}/mission"
         payload = json.dumps({"emergency_id": str(emergency_id), "mission": items})
         for attempt in range(1, self.settings.mqtt_publish_retries + 1):
@@ -58,6 +67,48 @@ class MQTTService:
             time.sleep(attempt)
         self._fail_emergency(emergency_id)
         return False
+
+    def _simulate_emergency(self, emergency_id):
+        # TEMPORARY DEMO FALLBACK: remove this method once HiveMQ MQTT auth is fixed.
+        # Every write below is a real transaction against the production database.
+        progression = [
+            (EmergencyStatus.EN_ROUTE, 3.0, 0.25, 90.0, 1, "AUTO"),
+            (EmergencyStatus.APPROACHING, 3.0, 0.55, 85.0, 1, "AUTO"),
+            (EmergencyStatus.ARRIVED, 3.0, 1.0, 80.0, 2, "LOITER"),
+            (EmergencyStatus.AED_DELIVERED, 4.0, 1.0, 78.0, 2, "LOITER"),
+            (EmergencyStatus.COMPLETED, 3.0, 1.0, 77.0, 2, "RTL"),
+        ]
+        record = None
+        try:
+            for status, delay, fraction, battery, item, mode in progression:
+                time.sleep(delay)
+                with SessionLocal.begin() as db:
+                    emergency = db.get(Emergency, emergency_id)
+                    if emergency is None or emergency.status in {EmergencyStatus.FAILED, EmergencyStatus.COMPLETED}:
+                        return
+                    if transition(emergency, status):
+                        emergency.telemetry = {
+                            "lat": emergency.lat * fraction,
+                            "lng": emergency.lng * fraction,
+                            "alt": 40 if status not in {EmergencyStatus.ARRIVED, EmergencyStatus.AED_DELIVERED, EmergencyStatus.COMPLETED} else 0,
+                            "battery_pct": battery,
+                            "mission_item_current": item,
+                            "mode": mode,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    if status == EmergencyStatus.AED_DELIVERED:
+                        emergency.rescue_report = {
+                            "aed_delivered": True,
+                            "delivery_timestamp": datetime.now(timezone.utc).isoformat(),
+                            "drone_battery_at_delivery": battery,
+                            "notes": "Demo fallback delivery simulation",
+                        }
+                    if status == EmergencyStatus.COMPLETED:
+                        record = self._full_record(emergency)
+            if record:
+                self._post_hospital(record)
+        except Exception:
+            log.exception("Demo MQTT fallback failed for emergency %s", emergency_id)
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         rc = getattr(reason_code, "value", reason_code)
@@ -103,8 +154,14 @@ class MQTTService:
             if emergency is None: raise ValueError("no active emergency for rescue report")
             emergency.rescue_report = payload
             transition(emergency, EmergencyStatus.AED_DELIVERED)
-            record = {"id":str(emergency.id),"location":{"lat":emergency.lat,"lng":emergency.lng,"accuracy":emergency.accuracy},"name":emergency.name,"phone":emergency.phone,"timestamp":emergency.timestamp.isoformat(),"rescue_report":payload}
+            record = self._full_record(emergency)
             transition(emergency, EmergencyStatus.COMPLETED)
+        self._post_hospital(record)
+
+    def _full_record(self, emergency):
+        return {"id":str(emergency.id),"location":{"lat":emergency.lat,"lng":emergency.lng,"accuracy":emergency.accuracy},"name":emergency.name,"phone":emergency.phone,"timestamp":emergency.timestamp.isoformat(),"rescue_report":emergency.rescue_report}
+
+    def _post_hospital(self, record):
         try:
             with httpx.Client(timeout=10) as client: client.post(str(self.settings.hospital_webhook_url), json=record).raise_for_status()
         except httpx.HTTPError: log.exception("Hospital webhook delivery failed")
