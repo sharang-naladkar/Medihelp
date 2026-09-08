@@ -20,7 +20,13 @@ class MQTTService:
         self.port = parsed.port or (8883 if parsed.scheme == "mqtts" else 1883)
         self.username = unquote(parsed.username) if parsed.username else None
         self.tls_enabled = parsed.scheme == "mqtts"
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self.client_id = f"medidrone-backend-{settings.drone_id}"
+        self.client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id=self.client_id,
+            protocol=mqtt.MQTTv311,
+            clean_session=True,
+        )
         if self.username is not None:
             self.client.username_pw_set(self.username, unquote(parsed.password or ""))
         if self.tls_enabled:
@@ -29,7 +35,7 @@ class MQTTService:
 
     def start(self, *, subscribe=True):
         self.subscribe_enabled = subscribe
-        log.info("MQTT connecting host=%s port=%s username=%s tls=%s", self.host, self.port, self.username or "<none>", self.tls_enabled)
+        log.info("MQTT connecting host=%s port=%s username=%s client_id=%s protocol=MQTTv311 tls=%s", self.host, self.port, self.username or "<none>", self.client_id, self.tls_enabled)
         self.client.connect(self.host, self.port, 60)
         self.client.loop_start()
 
@@ -63,7 +69,7 @@ class MQTTService:
             meaning = str(reason_code)
         log.info("MQTT CONNACK rc=%s meaning=%s", rc, meaning)
         if rc != 0:
-            log.error("MQTT connection refused host=%s port=%s username=%s rc=%s meaning=%s", self.host, self.port, self.username or "<none>", rc, meaning)
+            log.error("MQTT connection refused host=%s port=%s username=%s client_id=%s protocol=MQTTv311 rc=%s meaning=%s", self.host, self.port, self.username or "<none>", self.client_id, rc, meaning)
             return
         if self.subscribe_enabled:
             for suffix in ("status", "rescue-report"):
@@ -80,7 +86,7 @@ class MQTTService:
         except (ValueError, TypeError, KeyError, SQLAlchemyError) as exc:
             log.exception("Discarded malformed MQTT message on %s: %s", message.topic, exc)
         except Exception:
-            log.exception("Unexpected MQTT ingestion error on %s", message.topic)
+            log.exception("Unexpected MQTT ingestion error on %s: %s", message.topic, exc)
 
     def _handle_status(self, payload):
         required = {"emergency_id","status","lat","lng","alt","battery_pct","mission_item_current","mode","timestamp"}
