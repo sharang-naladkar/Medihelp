@@ -18,8 +18,18 @@ log = logging.getLogger(__name__)
 settings = MissionSettings()
 
 def get_db():
-    with SessionLocal() as db:
+    db = None
+    try:
+        db = SessionLocal()
         yield db
+    except SQLAlchemyError:
+        if db is not None:
+            db.rollback()
+        log.exception("Database connection or session failure")
+        raise HTTPException(503, "Emergency service database unavailable")
+    finally:
+        if db is not None:
+            db.close()
 
 @asynccontextmanager
 async def lifespan(app):
@@ -31,22 +41,12 @@ async def lifespan(app):
 
 app = FastAPI(title="MediDrone Backend", lifespan=lifespan)
 app_origin = os.getenv("APP_ORIGIN", "").rstrip("/")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[app_origin] if app_origin else [],
-    allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["content-type"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=[app_origin] if app_origin else [], allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["content-type"])
 
 @app.post("/api/v1/emergencies", response_model=EmergencyCreated, status_code=201)
 def create_emergency(body: EmergencyCreate, db: Session = Depends(get_db)):
     try:
-        drone = db.scalar(
-            select(Drone)
-            .where(Drone.id == settings.drone_id, Drone.status == "AVAILABLE")
-            .with_for_update()
-        )
+        drone = db.scalar(select(Drone).where(Drone.id == settings.drone_id, Drone.status == "AVAILABLE").with_for_update())
         if drone is None:
             raise HTTPException(503, "No available drone")
         emergency = Emergency(**body.model_dump(), status=EmergencyStatus.RECEIVED, drone_id=drone.id)
@@ -86,10 +86,4 @@ def get_emergency(emergency_id: str, db: Session = Depends(get_db)):
     if emergency is None:
         raise HTTPException(404, "Emergency not found")
     telemetry = emergency.telemetry or {}
-    return EmergencyRead(
-        status=emergency.status,
-        drone_lat=telemetry.get("lat"),
-        drone_lng=telemetry.get("lng"),
-        battery_pct=telemetry.get("battery_pct"),
-        eta_seconds=None,
-    )
+    return EmergencyRead(status=emergency.status, drone_lat=telemetry.get("lat"), drone_lng=telemetry.get("lng"), battery_pct=telemetry.get("battery_pct"), eta_seconds=None)
