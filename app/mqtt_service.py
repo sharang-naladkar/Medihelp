@@ -16,14 +16,19 @@ class MQTTService:
         parsed = urlparse(str(settings.mqtt_broker_url))
         if parsed.scheme not in {"mqtt", "mqtts"} or not parsed.hostname:
             raise ValueError("MQTT_BROKER_URL must be mqtt:// or mqtts:// with a host")
-        self.host, self.port = parsed.hostname, parsed.port or (8883 if parsed.scheme == "mqtts" else 1883)
+        self.host = parsed.hostname
+        self.port = parsed.port or (8883 if parsed.scheme == "mqtts" else 1883)
+        self.username = unquote(parsed.username) if parsed.username else None
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        if parsed.username: self.client.username_pw_set(unquote(parsed.username), unquote(parsed.password or ""))
-        if parsed.scheme == "mqtts": self.client.tls_set()
+        if self.username is not None:
+            self.client.username_pw_set(self.username, unquote(parsed.password or ""))
+        if parsed.scheme == "mqtts":
+            self.client.tls_set()
         self.client.on_connect, self.client.on_message = self._on_connect, self._on_message
 
     def start(self, *, subscribe=True):
         self.subscribe_enabled = subscribe
+        log.info("MQTT connecting host=%s port=%s username=%s tls=%s", self.host, self.port, self.username or "<none>", self.client.tls_set is not None)
         self.client.connect(self.host, self.port, 60)
         self.client.loop_start()
 
@@ -50,8 +55,15 @@ class MQTTService:
         return False
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):
-        if reason_code != 0:
-            log.error("MQTT connection refused: %s", reason_code); return
+        rc = getattr(reason_code, "value", reason_code)
+        try:
+            meaning = mqtt.connack_string(rc)
+        except (TypeError, ValueError):
+            meaning = str(reason_code)
+        log.info("MQTT CONNACK rc=%s meaning=%s", rc, meaning)
+        if rc != 0:
+            log.error("MQTT connection refused host=%s port=%s username=%s rc=%s meaning=%s", self.host, self.port, self.username or "<none>", rc, meaning)
+            return
         if self.subscribe_enabled:
             for suffix in ("status", "rescue-report"):
                 self.client.subscribe(f"drone/{self.settings.drone_id}/{suffix}", qos=1)
