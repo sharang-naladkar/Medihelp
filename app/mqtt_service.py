@@ -1,5 +1,5 @@
 import json, logging, time, uuid
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 import httpx
 import paho.mqtt.client as mqtt
 from sqlalchemy import select
@@ -18,7 +18,7 @@ class MQTTService:
             raise ValueError("MQTT_BROKER_URL must be mqtt:// or mqtts:// with a host")
         self.host, self.port = parsed.hostname, parsed.port or (8883 if parsed.scheme == "mqtts" else 1883)
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        if parsed.username: self.client.username_pw_set(parsed.username, parsed.password or "")
+        if parsed.username: self.client.username_pw_set(unquote(parsed.username), unquote(parsed.password or ""))
         if parsed.scheme == "mqtts": self.client.tls_set()
         self.client.on_connect, self.client.on_message = self._on_connect, self._on_message
 
@@ -35,12 +35,16 @@ class MQTTService:
         topic = f"drone/{self.settings.drone_id}/mission"
         payload = json.dumps({"emergency_id": str(emergency_id), "mission": items})
         for attempt in range(1, self.settings.mqtt_publish_retries + 1):
-            info = self.client.publish(topic, payload, qos=1)
-            info.wait_for_publish(timeout=5)
-            if info.rc == mqtt.MQTT_ERR_SUCCESS and info.is_published():
+            try:
+                info = self.client.publish(topic, payload, qos=1)
+                info.wait_for_publish(timeout=5)
+                published, rc = info.rc == mqtt.MQTT_ERR_SUCCESS and info.is_published(), info.rc
+            except (RuntimeError, OSError) as exc:
+                published, rc = False, str(exc)
+            if published:
                 log.info("Published mission for emergency %s to %s", emergency_id, topic)
                 return True
-            log.warning("Mission publish attempt %s/%s failed for %s (rc=%s)", attempt, self.settings.mqtt_publish_retries, emergency_id, info.rc)
+            log.warning("Mission publish attempt %s/%s failed for %s (rc=%s)", attempt, self.settings.mqtt_publish_retries, emergency_id, rc)
             time.sleep(attempt)
         self._fail_emergency(emergency_id)
         return False
