@@ -3,7 +3,8 @@ from pydantic import AnyUrl, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Neon CLI writes linked branch variables to .env.local; .env remains the deployment fallback.
+    model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
     database_url: str = Field(alias="DATABASE_URL")
     mqtt_broker_url: str = Field(alias="MQTT_BROKER_URL")
     drone_id: str = Field(alias="DRONE_ID", min_length=1)
