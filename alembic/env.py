@@ -5,7 +5,7 @@ from app.database import Base
 from app import models
 config = context.config
 settings = DatabaseSettings()
-config.set_main_option("sqlalchemy.url", settings.database_url_unpooled or settings.database_url)
+config.set_main_option("sqlalchemy.url", settings.sqlalchemy_url(direct=True))
 target_metadata = Base.metadata
 def run_migrations_offline():
     context.configure(url=config.get_main_option("sqlalchemy.url"), target_metadata=target_metadata, literal_binds=True, dialect_opts={"paramstyle":"named"})
