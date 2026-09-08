@@ -3,7 +3,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 revision, down_revision, branch_labels, depends_on = "20260908_01", None, None, None
-status_enum = sa.Enum("RECEIVED","DRONE_ASSIGNED","MISSION_GENERATED","DISPATCHED","EN_ROUTE","APPROACHING","ARRIVED","AED_DELIVERED","COMPLETED","FAILED", name="emergency_status")
+status_enum = postgresql.ENUM("RECEIVED","DRONE_ASSIGNED","MISSION_GENERATED","DISPATCHED","EN_ROUTE","APPROACHING","ARRIVED","AED_DELIVERED","COMPLETED","FAILED", name="emergency_status", create_type=False)
 def upgrade():
     status_enum.create(op.get_bind(), checkfirst=True)
     op.create_table("drones", sa.Column("id",sa.String(128),primary_key=True), sa.Column("callsign",sa.String(128),nullable=False), sa.Column("last_lat",sa.Float(),nullable=False), sa.Column("last_lng",sa.Float(),nullable=False), sa.Column("status",sa.String(64),nullable=False), sa.Column("battery_pct",sa.Float()))
