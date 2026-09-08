@@ -15,6 +15,7 @@ class DatabaseSettings(BaseSettings):
 class MissionSettings(DatabaseSettings):
     mqtt_broker_url: str = Field(alias="MQTT_BROKER_URL")
     drone_id: str = Field(alias="DRONE_ID", min_length=1)
+    hospital_webhook_url: AnyUrl = Field(alias="HOSPITAL_WEBHOOK_URL")
     mqtt_publish_retries: int = 3
 
 class Settings(BaseSettings):
