@@ -6,17 +6,18 @@ class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
     database_url: str = Field(alias="DATABASE_URL")
     database_url_unpooled: str | None = Field(default=None, alias="DATABASE_URL_UNPOOLED")
-
     def sqlalchemy_url(self, *, direct: bool = False) -> str:
         value = self.database_url_unpooled if direct and self.database_url_unpooled else self.database_url
-        if value.startswith("postgresql://"):
-            return value.replace("postgresql://", "postgresql+psycopg://", 1)
-        if value.startswith("postgres://"):
-            return value.replace("postgres://", "postgresql+psycopg://", 1)
+        if value.startswith("postgresql://"): return value.replace("postgresql://", "postgresql+psycopg://", 1)
+        if value.startswith("postgres://"): return value.replace("postgres://", "postgresql+psycopg://", 1)
         return value
 
+class MissionSettings(DatabaseSettings):
+    mqtt_broker_url: str = Field(alias="MQTT_BROKER_URL")
+    drone_id: str = Field(alias="DRONE_ID", min_length=1)
+    mqtt_publish_retries: int = 3
+
 class Settings(BaseSettings):
-    # Neon CLI writes linked branch variables to .env.local; .env remains the deployment fallback.
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
     database_url: str = Field(alias="DATABASE_URL")
     database_url_unpooled: str | None = Field(default=None, alias="DATABASE_URL_UNPOOLED")
